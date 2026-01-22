@@ -20,11 +20,15 @@
 
     <div class="actions">
       <!-- 本機開檔：支援 File System Access API 時可覆蓋儲存 -->
-      <button class="btn" id="btnOpenLocal" title="Open local .md (best effort overwrite save)">
+      <button class="btn" id="btnOpenLocal" title="Open local .md (overwrite if possible)">
         <span class="dot"></span> 本機 MD
       </button>
 
-      <!-- fallback file input -->
+      <!-- 永遠可用的相容選檔（手機/平板/所有瀏覽器） -->
+      <button class="btn btn-ghost" id="btnChooseFile" title="Choose file (compat mode)">
+        選擇檔案
+      </button>
+
       <input id="fileInput" type="file" accept=".md,.markdown,text/markdown,text/plain" hidden />
 
       <button class="btn btn-ghost" id="btnToggleToc" title="Toggle TOC">目錄</button>
@@ -87,10 +91,8 @@
 
     <section class="viewer">
       <div class="panel">
-        <!-- Preview -->
         <article class="paper" id="content" tabindex="0"></article>
 
-        <!-- Editor (hidden by default, shown in edit mode) -->
         <div class="editorWrap" id="editorWrap" hidden>
           <div class="editorTop">
             <div class="editorTitle">Markdown Editor</div>
@@ -115,9 +117,7 @@
     </div>
   </footer>
 
-  <!-- Markdown parser -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <!-- Syntax highlight -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
   <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
 
