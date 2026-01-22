@@ -1,11 +1,14 @@
-/* MD Viewer - app.js (Optimized)
- * ✅ Code block copy button (position controlled by CSS)
- * ✅ Mobile drawer sidebar
- * ✅ Merge "open local" (overwrite picker if possible; else file input)
- * ✅ Recent opened list (device localStorage)
- * ✅ Themes: dark / light / eye
- * ✅ Default preview, click to edit
- * ✅ Save: overwrite if possible else numbered Save As
+/* MD Viewer - Final Stable
+ * - Default preview, click edit to modify
+ * - Local open: overwrite picker if available, else file input
+ * - Save: overwrite if possible; otherwise numbered Save As + alert message
+ * - Code blocks: NEVER wrap, horizontal scroll only + fade scroll hint
+ * - Copy button (top-left) on each code block (no overlap with code)
+ * - Mobile drawer sidebar
+ * - Recent opened list with search (stored on device, includes content snapshot)
+ * - Find in document (Ctrl/⌘+K), next/prev, ESC to close
+ * - Remember scroll position per doc source
+ * - Themes: dark / light / eye
  */
 
 const el = (id) => document.getElementById(id);
@@ -35,6 +38,13 @@ const btnModePreview = el("btnModePreview");
 const btnModeEdit = el("btnModeEdit");
 const btnSave = el("btnSave");
 
+const btnFind = el("btnFind");
+const findbar = el("findbar");
+const findInput = el("findInput");
+const findPrev = el("findPrev");
+const findNext = el("findNext");
+const findClose = el("findClose");
+
 const dropzone = el("dropzone");
 
 const editorWrap = el("editorWrap");
@@ -42,6 +52,7 @@ const editor = el("editor");
 const editorMeta = el("editorMeta");
 
 const recentListEl = el("recentList");
+const recentSearchEl = el("recentSearch");
 
 // ---------- Theme ----------
 const THEME_KEY = "mdv.theme";
@@ -112,13 +123,16 @@ overlayEl.addEventListener("click", closeSidebar);
 
 // ---------- State ----------
 const state = {
-  mode: "preview",
+  mode: "preview",          // preview | edit
   currentText: "",
   source: "—",
+
+  // overwrite save
   fileHandle: null,
   originalFileName: "",
-  activeUrl: "",
-  cacheKey: ""
+
+  // url mode
+  activeUrl: ""
 };
 
 function setMode(mode) {
@@ -129,6 +143,7 @@ function setMode(mode) {
 
     editor.value = state.currentText || "";
     editor.focus({ preventScroll: false });
+
     editorMeta.textContent = state.originalFileName
       ? `Editing: ${state.originalFileName}`
       : (state.activeUrl ? `Editing (from URL): ${state.activeUrl}` : "Editing: (unsaved)");
@@ -143,7 +158,7 @@ function setMode(mode) {
 btnModePreview.addEventListener("click", () => setMode("preview"));
 btnModeEdit.addEventListener("click", () => setMode("edit"));
 
-// Editor live preview
+// editor live preview
 let renderTimer = null;
 editor.addEventListener("input", () => {
   state.currentText = editor.value;
@@ -170,6 +185,7 @@ function renderMarkdown(mdText, meta = {}) {
 
   contentEl.innerHTML = html;
 
+  // links target blank
   contentEl.querySelectorAll("a[href]").forEach((a) => {
     a.target = "_blank";
     a.rel = "noopener noreferrer";
@@ -177,8 +193,12 @@ function renderMarkdown(mdText, meta = {}) {
 
   buildTOC();
   injectCopyButtons();
+  initCodeScrollHints();
 
   metaEl.textContent = `Source: ${source} • Size: ${size.toLocaleString()} chars • Rendered: ${when}`;
+
+  // restore scroll after render
+  setTimeout(() => restoreScroll(), 60);
 }
 
 function buildTOC() {
@@ -198,7 +218,6 @@ function buildTOC() {
     const a = document.createElement("a");
     a.href = "#";
     a.textContent = h.textContent || "(untitled)";
-
     const level = h.tagName === "H1" ? 0 : h.tagName === "H2" ? 1 : 2;
     a.style.marginLeft = `${level * 10}px`;
 
@@ -214,7 +233,7 @@ function buildTOC() {
   tocEl.appendChild(frag);
 }
 
-// Copy buttons (position is CSS)
+// ---------- Copy buttons on code blocks (top-left) ----------
 function injectCopyButtons() {
   contentEl.querySelectorAll(".copybtn").forEach((b) => b.remove());
 
@@ -243,6 +262,33 @@ function injectCopyButtons() {
   });
 }
 
+// ---------- Code scroll hint (fade shadows) ----------
+function initCodeScrollHints() {
+  const pres = contentEl.querySelectorAll("pre");
+  pres.forEach((pre) => {
+    const update = () => updatePreScrollAttrs(pre);
+    update();
+    pre.addEventListener("scroll", update, { passive: true });
+    // Also update when window resizes (layout changes)
+    window.addEventListener("resize", update, { passive: true });
+  });
+}
+
+function updatePreScrollAttrs(pre) {
+  const maxScrollLeft = pre.scrollWidth - pre.clientWidth;
+  const left = pre.scrollLeft;
+  const canScroll = maxScrollLeft > 2;
+
+  if (!canScroll) {
+    pre.dataset.scrollLeft = "false";
+    pre.dataset.scrollRight = "false";
+    return;
+  }
+
+  pre.dataset.scrollLeft = left > 2 ? "true" : "false";
+  pre.dataset.scrollRight = left < (maxScrollLeft - 2) ? "true" : "false";
+}
+
 // ---------- Helpers ----------
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
@@ -258,21 +304,19 @@ function slugify(str) {
     .slice(0, 80) || `h-${Math.random().toString(16).slice(2)}`;
 }
 
-// ---------- Open Local (merged) ----------
+// ---------- Local Open (merged) ----------
 btnOpenLocal.addEventListener("click", async () => {
   if (window.showOpenFilePicker) {
     try {
       const [handle] = await window.showOpenFilePicker({
         multiple: false,
-        types: [
-          {
-            description: "Markdown",
-            accept: {
-              "text/markdown": [".md", ".markdown"],
-              "text/plain": [".txt"]
-            }
+        types: [{
+          description: "Markdown",
+          accept: {
+            "text/markdown": [".md", ".markdown"],
+            "text/plain": [".txt"]
           }
-        ]
+        }]
       });
 
       const file = await handle.getFile();
@@ -281,7 +325,6 @@ btnOpenLocal.addEventListener("click", async () => {
       state.fileHandle = handle;
       state.originalFileName = file.name || "note.md";
       state.activeUrl = "";
-      state.cacheKey = "";
       state.source = `local: ${state.originalFileName}`;
 
       renderMarkdown(text, { source: state.source });
@@ -298,7 +341,7 @@ btnOpenLocal.addEventListener("click", async () => {
       closeSidebar();
       return;
     } catch (e) {
-      // fall back
+      // user cancel -> fallback to file input (no error)
     }
   }
   fileInput.click();
@@ -315,7 +358,6 @@ fileInput.addEventListener("change", async () => {
     state.fileHandle = null;
     state.originalFileName = file.name || "note.md";
     state.activeUrl = "";
-    state.cacheKey = "";
     state.source = `local: ${state.originalFileName}`;
 
     renderMarkdown(text, { source: state.source });
@@ -369,7 +411,6 @@ dropzone.addEventListener("drop", async (e) => {
     state.fileHandle = null;
     state.originalFileName = file.name || "note.md";
     state.activeUrl = "";
-    state.cacheKey = "";
     state.source = `local: ${state.originalFileName}`;
 
     renderMarkdown(text, { source: state.source });
@@ -389,7 +430,7 @@ dropzone.addEventListener("drop", async (e) => {
   }
 });
 
-// ---------- Load from URL ----------
+// ---------- Load from URL (CORS required) ----------
 btnLoadUrl.addEventListener("click", async () => {
   const url = (urlInput.value || "").trim();
   if (!url) return setStatus("請貼上 MD 連結", "err");
@@ -406,7 +447,6 @@ async function loadFromUrl(url) {
     state.fileHandle = null;
     state.originalFileName = "";
     state.activeUrl = url;
-    state.cacheKey = "";
     state.source = `url: ${url}`;
 
     renderMarkdown(text, { source: state.source });
@@ -428,10 +468,18 @@ async function loadFromUrl(url) {
 
 // ---------- Sample ----------
 btnSample.addEventListener("click", () => {
-  const sample = `# MD Viewer（示範）
+  const sample = `# MD Viewer（最終穩定版示範）
 
-- Copy 按鈕在程式碼區塊 **左上角**
-- pre 有上方留白，Copy 不會蓋到內容
+- 程式碼：**不換行**、只允許左右滑動（GitHub 行為）
+- 程式碼左上角有 Copy（不會蓋到內容）
+- 會顯示左右滑動提示陰影（可滑時才出現）
+- 最近清單：裝置內保存一份快照（可搜尋）
+- 文件搜尋：Ctrl/⌘ + K
+
+## Code
+\`\`\`bash
+sudo systemctl restart networking && echo "done"
+\`\`\`
 
 \`\`\`js
 function hello(name){
@@ -439,11 +487,12 @@ function hello(name){
 }
 console.log(hello("World"));
 \`\`\`
+
+> 主題：Dark / Light / Eye（護眼偏米白）
 `;
   state.fileHandle = null;
   state.originalFileName = "sample.md";
   state.activeUrl = "";
-  state.cacheKey = "";
   state.source = "sample";
 
   renderMarkdown(sample, { source: state.source });
@@ -458,7 +507,7 @@ console.log(hello("World"));
   });
 });
 
-// ---------- Share link ----------
+// ---------- Share link (URL only) ----------
 btnCopyLink.addEventListener("click", async () => {
   if (!state.activeUrl) {
     setStatus("目前不是 URL 模式，無法複製可分享來源連結。", "err");
@@ -475,6 +524,7 @@ btnCopyLink.addEventListener("click", async () => {
 
 // ---------- Save ----------
 btnSave.addEventListener("click", async () => {
+  // Try overwrite
   if (state.fileHandle) {
     try {
       await overwriteToHandle(state.fileHandle, state.currentText);
@@ -488,14 +538,18 @@ btnSave.addEventListener("click", async () => {
         subtitle: "Local (snapshot updated)",
         content: state.currentText
       });
+
       return;
     } catch (e) {
+      alert(`無法覆蓋原檔（瀏覽器權限/限制）：\n${String(e)}\n\n將改用另存序號。`);
       setStatus(`無法覆蓋（${String(e)}），將改用另存序號。`, "err");
     }
   } else {
-    setStatus("此來源無法覆蓋（拖曳/相容選檔/URL），將改用另存序號。", "err");
+    alert("此來源無法覆蓋（拖曳/相容選檔/URL）。將另存為 檔名(1).md、(2)…");
+    setStatus("此來源無法覆蓋，將改用另存序號。", "err");
   }
 
+  // Save as numbered
   const suggested = nextNumberedName(state.originalFileName || "note.md");
   downloadTextAsFile(state.currentText, suggested);
 
@@ -556,11 +610,11 @@ function downloadTextAsFile(text, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// ---------- Recent list ----------
+// ---------- Recent list (device cache) ----------
 const RECENT_KEY = "mdv.recent.v1";
 const RECENT_MAX = 12;
 const CACHE_PREFIX = "mdv.cache:";
-const CACHE_MAX_CHARS = 180_000;
+const CACHE_MAX_CHARS = 180_000; // keep it safe-ish
 
 function safeKey(s) {
   const base = String(s).slice(0, 80);
@@ -571,13 +625,10 @@ function addRecent({ type, title, subtitle, content }) {
   try {
     const now = Date.now();
     const id = `${type}:${safeKey(title)}:${now}`;
+    const cacheKey = `${CACHE_PREFIX}${safeKey(id)}`;
 
-    let cacheKey = `${CACHE_PREFIX}${safeKey(id)}`;
-    if (typeof content === "string" && content.length <= CACHE_MAX_CHARS) {
-      localStorage.setItem(cacheKey, content);
-    } else {
-      localStorage.setItem(cacheKey, String(content || "").slice(0, CACHE_MAX_CHARS));
-    }
+    const text = String(content || "");
+    localStorage.setItem(cacheKey, text.length <= CACHE_MAX_CHARS ? text : text.slice(0, CACHE_MAX_CHARS));
 
     const item = { id, type, title, subtitle, ts: now, cacheKey };
 
@@ -585,9 +636,8 @@ function addRecent({ type, title, subtitle, content }) {
     const filtered = list.filter(x => !(x.type === type && x.title === title));
     filtered.unshift(item);
 
-    const trimmed = filtered.slice(0, RECENT_MAX);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(trimmed));
-    renderRecent();
+    localStorage.setItem(RECENT_KEY, JSON.stringify(filtered.slice(0, RECENT_MAX)));
+    renderRecent(recentSearchEl.value.trim().toLowerCase());
   } catch {}
 }
 
@@ -597,16 +647,23 @@ function getRecent() {
 }
 
 function removeRecent(id) {
-  const list = getRecent().filter(x => x.id !== id);
-  localStorage.setItem(RECENT_KEY, JSON.stringify(list));
-  renderRecent();
+  const list = getRecent();
+  const target = list.find(x => x.id === id);
+  if (target?.cacheKey) {
+    try { localStorage.removeItem(target.cacheKey); } catch {}
+  }
+  const next = list.filter(x => x.id !== id);
+  localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  renderRecent(recentSearchEl.value.trim().toLowerCase());
 }
 
 function clearRecent() {
   const list = getRecent();
-  list.forEach(x => { try { if (x.cacheKey) localStorage.removeItem(x.cacheKey); } catch {} });
+  list.forEach(x => {
+    try { if (x.cacheKey) localStorage.removeItem(x.cacheKey); } catch {}
+  });
   localStorage.removeItem(RECENT_KEY);
-  renderRecent();
+  renderRecent("");
 }
 
 btnClearRecent.addEventListener("click", () => {
@@ -614,16 +671,27 @@ btnClearRecent.addEventListener("click", () => {
   setStatus("已清除最近清單", "ok");
 });
 
-function renderRecent() {
+recentSearchEl.addEventListener("input", () => {
+  renderRecent(recentSearchEl.value.trim().toLowerCase());
+});
+
+function renderRecent(filter = "") {
   const list = getRecent();
   recentListEl.innerHTML = "";
 
-  if (!list.length) {
-    recentListEl.innerHTML = `<div class="hint">（尚無紀錄）</div>`;
+  const filtered = list.filter(item => {
+    if (!filter) return true;
+    return String(item.title || "").toLowerCase().includes(filter) ||
+           String(item.subtitle || "").toLowerCase().includes(filter) ||
+           String(item.type || "").toLowerCase().includes(filter);
+  });
+
+  if (!filtered.length) {
+    recentListEl.innerHTML = `<div class="hint">（沒有符合的項目）</div>`;
     return;
   }
 
-  list.forEach((item) => {
+  filtered.forEach((item) => {
     const wrap = document.createElement("div");
     wrap.className = "recentItem";
 
@@ -672,10 +740,10 @@ function openRecent(item) {
     return;
   }
 
+  // Open snapshot (cannot restore overwrite handle)
   state.fileHandle = null;
-  state.originalFileName = item.type === "local" ? item.title : "";
+  state.originalFileName = item.type === "local" || item.type === "sample" ? item.title : "";
   state.activeUrl = item.type === "url" ? item.title : "";
-  state.cacheKey = item.cacheKey || "";
   state.source = `recent: ${item.title}`;
 
   if (item.type === "url") urlInput.value = item.title;
@@ -686,10 +754,192 @@ function openRecent(item) {
   closeSidebar();
 }
 
-// ---------- init ----------
+// ---------- Find in document ----------
+let findHits = [];
+let findIndex = -1;
+let findKeyword = "";
+
+function openFindBar() {
+  findbar.hidden = false;
+  findInput.focus({ preventScroll: true });
+  findInput.select();
+}
+function closeFindBar() {
+  findbar.hidden = true;
+  findKeyword = "";
+  findHits = [];
+  findIndex = -1;
+  // re-render to remove highlights (stable)
+  renderMarkdown(state.currentText, { source: state.source });
+}
+
+btnFind.addEventListener("click", () => {
+  if (findbar.hidden) openFindBar();
+  else closeFindBar();
+});
+findClose.addEventListener("click", closeFindBar);
+
+document.addEventListener("keydown", (e) => {
+  const isMac = navigator.platform.toLowerCase().includes("mac");
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+
+  // Ctrl/⌘+K open find
+  if (mod && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    if (findbar.hidden) openFindBar();
+    else closeFindBar();
+  }
+
+  // ESC closes find
+  if (e.key === "Escape" && !findbar.hidden) {
+    e.preventDefault();
+    closeFindBar();
+  }
+
+  // Enter next/prev when find input focused
+  if (!findbar.hidden && document.activeElement === findInput) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) gotoPrevHit();
+      else gotoNextHit();
+    }
+  }
+});
+
+findInput.addEventListener("input", () => {
+  findKeyword = findInput.value.trim();
+  applyFind(findKeyword);
+});
+
+findNext.addEventListener("click", gotoNextHit);
+findPrev.addEventListener("click", gotoPrevHit);
+
+function applyFind(keyword) {
+  // remove highlights by re-render
+  if (!keyword) {
+    renderMarkdown(state.currentText, { source: state.source });
+    findHits = [];
+    findIndex = -1;
+    return;
+  }
+
+  // Render once, then inject <mark> safely by highlighting in DOM text nodes
+  renderMarkdown(state.currentText, { source: state.source });
+
+  const marks = highlightTextNodes(contentEl, keyword);
+  findHits = marks;
+  findIndex = marks.length ? 0 : -1;
+
+  if (findHits.length) {
+    scrollToHit(findIndex);
+    setStatus(`搜尋：找到 ${findHits.length} 筆`, "ok");
+  } else {
+    setStatus("搜尋：沒有結果", "err");
+  }
+}
+
+function gotoNextHit() {
+  if (!findHits.length) return;
+  findIndex = (findIndex + 1) % findHits.length;
+  scrollToHit(findIndex);
+}
+function gotoPrevHit() {
+  if (!findHits.length) return;
+  findIndex = (findIndex - 1 + findHits.length) % findHits.length;
+  scrollToHit(findIndex);
+}
+
+function scrollToHit(idx) {
+  const el = findHits[idx];
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+/* Highlight keyword in text nodes only (avoid breaking code blocks/buttons) */
+function highlightTextNodes(root, keyword) {
+  const marks = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+
+      // Skip inside code/pre/script/style/buttons
+      const p = node.parentElement;
+      if (!p) return NodeFilter.FILTER_REJECT;
+      if (p.closest("pre, code, script, style, button, textarea, input")) return NodeFilter.FILTER_REJECT;
+
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+
+  const re = new RegExp(escapeRegExp(keyword), "gi");
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+
+  nodes.forEach((textNode) => {
+    const text = textNode.nodeValue;
+    if (!re.test(text)) return;
+
+    const frag = document.createDocumentFragment();
+    let lastIndex = 0;
+    re.lastIndex = 0;
+
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const start = m.index;
+      const end = start + m[0].length;
+
+      if (start > lastIndex) frag.appendChild(document.createTextNode(text.slice(lastIndex, start)));
+
+      const mark = document.createElement("mark");
+      mark.textContent = text.slice(start, end);
+      frag.appendChild(mark);
+      marks.push(mark);
+
+      lastIndex = end;
+    }
+
+    if (lastIndex < text.length) frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+
+    textNode.parentNode.replaceChild(frag, textNode);
+  });
+
+  return marks;
+}
+
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// ---------- Remember scroll position ----------
+const SCROLL_KEY = "mdv.scroll.";
+
+function scrollKeyForSource() {
+  return SCROLL_KEY + (state.source || "unknown");
+}
+
+function saveScroll() {
+  try {
+    localStorage.setItem(scrollKeyForSource(), String(contentEl.scrollTop || 0));
+  } catch {}
+}
+
+function restoreScroll() {
+  try {
+    const v = localStorage.getItem(scrollKeyForSource());
+    if (v !== null) contentEl.scrollTop = parseInt(v, 10) || 0;
+  } catch {}
+}
+
+let scrollRaf = null;
+contentEl.addEventListener("scroll", () => {
+  if (scrollRaf) cancelAnimationFrame(scrollRaf);
+  scrollRaf = requestAnimationFrame(saveScroll);
+}, { passive: true });
+
+// ---------- Boot ----------
 function boot() {
   setMode("preview");
-  renderRecent();
+  renderRecent("");
   btnSample.click();
 }
 boot();
