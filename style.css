@@ -30,21 +30,30 @@
   --shadow: 0 12px 40px rgba(20,30,60,.12);
 }
 
+/* Eye-care mode (warmer, rice-white, low glare) */
 :root[data-theme="eye"]{
-  --bg:#0C0B0A;
-  --panel:#14120F;
-  --panel2:#171411;
-  --text:#F2EADB;
-  --muted:#C8BEAE;
-  --line:rgba(255,224,170,.14);
-  --glow:rgba(255,200,120,.12);
-  --accent:#FFC87A;
-  --accent2:#B7A6FF;
+  --bg:#0E0C0A;
+  --panel:#161310;
+  --panel2:#1A1612;
+
+  --text:#F3EBDD;
+  --muted:#CFC4B0;
+
+  --line:rgba(255,220,170,.18);
+  --glow:rgba(255,190,120,.10);
+
+  --accent:#FFD08A;
+  --accent2:#C5B7FF;
+
   --shadow: 0 12px 40px rgba(0,0,0,.50);
 }
 
 *{box-sizing:border-box}
 html,body{height:100%}
+html, body{
+  max-width: 100%;
+  overflow-x: hidden; /* critical mobile safety */
+}
 body{
   margin:0;
   font-family:var(--sans);
@@ -161,7 +170,7 @@ body{
   gap:12px;
 }
 
-.card, .paper, .editorWrap{
+.card, .paper, .editorWrap, .findbar .find-inner{
   background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0));
   border:1px solid var(--line);
   border-radius: var(--radius);
@@ -219,11 +228,26 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
 .status.ok{color:var(--ok)}
 .status.err{color:var(--danger)}
 
+/* Reading comfort */
 .paper{
   padding: 22px;
-  line-height:1.75;
-  overflow:auto;
+  font-size: 16px;
+  line-height: 1.8;
+  overflow: auto;
   min-height: 48dvh;
+
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 980px){
+  .paper{
+    padding: 14px;
+    font-size: 15px;
+    line-height: 1.9;
+    min-height: 52dvh;
+  }
 }
 
 /* Markdown style */
@@ -232,30 +256,112 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
 .paper h2{font-size:22px; margin: 24px 0 10px;}
 .paper h3{font-size:18px; margin: 18px 0 8px;}
 .paper p{margin: 10px 0;}
-.paper a{color: var(--accent); text-decoration: none}
+.paper a{color: var(--accent); text-decoration: none; overflow-wrap:anywhere;}
 .paper a:hover{text-decoration: underline}
+.paper img{max-width:100%; height:auto;}
 
-.paper code{
+/* Inline code wraps normally (won't blow layout) */
+.paper code:not(pre code){
   font-family: var(--mono);
   font-size: .95em;
   padding: .15em .35em;
   border-radius: 10px;
   border:1px solid var(--line);
   background: rgba(0,0,0,.18);
+  white-space: normal;
+  overflow-wrap:anywhere;
 }
-:root[data-theme="light"] .paper code{background: rgba(0,0,0,.04);}
+:root[data-theme="light"] .paper code:not(pre code){background: rgba(0,0,0,.04);}
 
-/* ✅ pre: add top padding so Copy button never covers code */
+/* Tables: scroll instead of breaking */
+.paper table{
+  display:block;
+  max-width:100%;
+  overflow-x:auto;
+  -webkit-overflow-scrolling: touch;
+  border-collapse: collapse;
+  margin: 14px 0;
+  border-radius: 14px;
+  border:1px solid var(--line);
+}
+.paper th,.paper td{padding:10px; border-bottom:1px solid var(--line);}
+.paper th{color:var(--muted); text-align:left}
+
+/* =========================================================
+   Code blocks = GitHub-style (NEVER wrap, horizontal scroll only)
+   + fade shadow hint (scroll)
+   + Copy button top-left, does NOT cover text
+   ========================================================= */
 .paper pre{
   position:relative;
-  padding: 42px 14px 14px; /* top padding increased for button space */
+  max-width:100%;
+  overflow-x:auto;
+  overflow-y:hidden;
+  white-space:pre;
+  -webkit-overflow-scrolling:touch;
+
+  padding: 38px 14px 14px; /* top space for copy button (no overlap) */
   border-radius: 16px;
   border: 1px solid var(--line);
   background: rgba(0,0,0,.22);
-  overflow:auto;
 }
 :root[data-theme="light"] .paper pre{background: rgba(0,0,0,.04);}
-.paper pre code{padding:0; border:0; background:transparent}
+
+.paper pre code{
+  white-space:pre;
+  word-break:normal;
+  overflow-wrap:normal;
+  display:inline-block;
+  min-width:100%;
+  padding:0;
+  border:0;
+  background:transparent;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+/* Copy button (top-left) */
+.copybtn{
+  position:absolute;
+  top:10px;
+  left:10px;
+  padding:7px 10px;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background: rgba(0,0,0,.18);
+  color:var(--text);
+  cursor:pointer;
+  font-size:12px;
+  font-family: var(--sans);
+  z-index:2;
+}
+:root[data-theme="light"] .copybtn{background: rgba(255,255,255,.70);}
+.copybtn:hover{border-color: rgba(102,227,255,.45); box-shadow: 0 0 0 4px rgba(102,227,255,.08);}
+
+/* Fade shadow hint (controlled by JS data attrs) */
+.paper pre::before,
+.paper pre::after{
+  content:"";
+  position:absolute;
+  top:0;
+  bottom:0;
+  width:18px;
+  pointer-events:none;
+  opacity:0;
+  transition: opacity .18s ease;
+  z-index:1;
+}
+.paper pre::before{
+  left:0;
+  background: linear-gradient(to right, rgba(0,0,0,.35), rgba(0,0,0,0));
+}
+.paper pre::after{
+  right:0;
+  background: linear-gradient(to left, rgba(0,0,0,.35), rgba(0,0,0,0));
+}
+.paper pre[data-scroll-left="true"]::before{opacity:1;}
+.paper pre[data-scroll-right="true"]::after{opacity:1;}
 
 .paper blockquote{
   margin: 14px 0;
@@ -265,19 +371,6 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
   border-radius: 12px;
   color: var(--muted);
 }
-.paper table{
-  width:100%;
-  border-collapse: collapse;
-  margin: 14px 0;
-  overflow:hidden;
-  border-radius: 14px;
-  border:1px solid var(--line);
-}
-.paper th,.paper td{
-  padding:10px;
-  border-bottom:1px solid var(--line);
-}
-.paper th{color:var(--muted); text-align:left}
 
 /* TOC */
 .toc nav a{
@@ -321,23 +414,7 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
 }
 :root[data-theme="light"] .editor{background: rgba(0,0,0,.03); color:var(--text);}
 
-/* ✅ Copy button: move to TOP-LEFT */
-.copybtn{
-  position:absolute;
-  top:10px;
-  left:10px;             /* was right:10px */
-  padding:7px 10px;
-  border-radius:12px;
-  border:1px solid var(--line);
-  background: rgba(0,0,0,.18);
-  color:var(--text);
-  cursor:pointer;
-  font-size:12px;
-  font-family: var(--sans);
-}
-:root[data-theme="light"] .copybtn{background: rgba(255,255,255,.65);}
-.copybtn:hover{border-color: rgba(102,227,255,.45); box-shadow: 0 0 0 4px rgba(102,227,255,.08);}
-
+/* Footer */
 .footer{
   max-width:1320px;
   margin: 0 auto;
@@ -356,16 +433,9 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
 }
 
 /* Recent list */
-.recent{
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-  margin-top:10px;
-}
+.recent{display:flex; flex-direction:column; gap:8px; margin-top:10px;}
 .recentItem{
-  display:flex;
-  gap:10px;
-  align-items:flex-start;
+  display:flex; gap:10px; align-items:flex-start;
   padding:10px;
   border-radius:14px;
   border:1px solid var(--line);
@@ -373,21 +443,8 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
 }
 :root[data-theme="light"] .recentItem{background: rgba(0,0,0,.03);}
 .recentMain{flex:1; min-width:0}
-.recentTitle{
-  font-weight:800;
-  font-size:13px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-.recentSub{
-  font-size:12px;
-  color:var(--muted);
-  margin-top:3px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
+.recentTitle{font-weight:800; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.recentSub{font-size:12px; color:var(--muted); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .recentBtns{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
 .smallbtn{
   padding:6px 10px;
@@ -400,6 +457,22 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
 }
 .smallbtn:hover{border-color: rgba(102,227,255,.35); box-shadow: 0 0 0 4px rgba(102,227,255,.08);}
 
+/* Find bar */
+.findbar{
+  position: sticky;
+  top: 64px;
+  z-index: 19;
+  padding: 10px 12px 0;
+}
+.find-inner{
+  padding: 10px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+.find-actions{display:flex; gap:8px; flex-wrap:wrap}
+.findbar input{flex:1;}
+
 /* Mobile drawer */
 .overlay{
   position:fixed;
@@ -411,6 +484,7 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
 @media (max-width: 980px){
   .iconbtn{display:inline-flex; align-items:center; justify-content:center;}
   .layout{grid-template-columns: 1fr;}
+
   .sidebar{
     position:fixed;
     top:0;
@@ -429,10 +503,9 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
   :root[data-theme="eye"] .sidebar{background: rgba(20,18,15,.94);}
 
   .sidebar.open{transform: translateX(0);}
-  .paper{min-height: 52dvh;}
   .actions{gap:8px;}
 }
 
 @media (prefers-reduced-motion: reduce){
-  .btn,.dropzone,.sidebar{transition:none}
+  .btn,.dropzone,.sidebar,.paper pre::before,.paper pre::after{transition:none}
 }
