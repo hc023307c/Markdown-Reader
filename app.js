@@ -1,10 +1,11 @@
 /* MD Viewer - app.js (Edit + Save)
- * 需求符合：
- * - 預設 Preview（瀏覽模式）
- * - 按「編輯」才顯示 editor
+ * - 預設 Preview
+ * - 按「編輯」才可改
  * - 儲存：能覆蓋就覆蓋；不能覆蓋 => 提示並另存 檔名(1).md, (2)...
- * - 編號用 localStorage 記錄（每個 baseName 各自遞增）
- * - 本機開檔：優先 File System Access API（可覆蓋），不支援則 fallback file input（只能另存）
+ * - 本機入口同時支援：
+ *    A) 本機 MD（可覆蓋優先） -> showOpenFilePicker
+ *    B) 選擇檔案（相容） -> <input type="file"> 永遠可用
+ *    C) 拖曳進 dropzone
  */
 
 const el = (id) => document.getElementById(id);
@@ -17,6 +18,7 @@ const metaEl = el("meta");
 const sidebarEl = el("sidebar");
 
 const btnOpenLocal = el("btnOpenLocal");
+const btnChooseFile = el("btnChooseFile");
 const fileInput = el("fileInput");
 
 const urlInput = el("urlInput");
@@ -88,10 +90,8 @@ const state = {
   mode: "preview", // preview | edit
   currentText: "",
   source: "—",
-  // 本機覆寫用：
   fileHandle: null,         // FileSystemFileHandle (if available)
   originalFileName: "",     // e.g. note.md
-  // URL 模式：
   activeUrl: ""
 };
 
@@ -102,7 +102,6 @@ function setMode(mode) {
     editorWrap.hidden = false;
     btnSave.disabled = false;
 
-    // editor 以目前內容為準
     editor.value = state.currentText || "";
     editor.focus({ preventScroll: false });
     editorMeta.textContent = state.originalFileName
@@ -120,11 +119,10 @@ function setMode(mode) {
 btnModePreview.addEventListener("click", () => setMode("preview"));
 btnModeEdit.addEventListener("click", () => setMode("edit"));
 
-// editor 即時預覽（編輯時）
+// editor 即時預覽
 let renderTimer = null;
 editor.addEventListener("input", () => {
   state.currentText = editor.value;
-  // debounce render
   if (renderTimer) clearTimeout(renderTimer);
   renderTimer = setTimeout(() => {
     renderMarkdown(state.currentText, { source: state.source });
@@ -158,7 +156,6 @@ function renderMarkdown(mdText, meta = {}) {
   metaEl.textContent = `Source: ${source} • Size: ${size.toLocaleString()} chars • Rendered: ${when}`;
 }
 
-// TOC
 function buildTOC() {
   tocEl.innerHTML = "";
   const headings = contentEl.querySelectorAll("h1, h2, h3");
@@ -213,9 +210,9 @@ btnToggleToc.addEventListener("click", () => {
   sidebarEl.style.display = tocOpen ? "" : "none";
 });
 
-// ---------- Local Open (best effort overwrite support) ----------
+// ---------- Local Open: A) Overwrite-capable picker ----------
 btnOpenLocal.addEventListener("click", async () => {
-  // 優先用 File System Access API（可覆寫）
+  // 支援 File System Access API -> 可取得 handle（才可能覆蓋）
   if (window.showOpenFilePicker) {
     try {
       const [handle] = await window.showOpenFilePicker({
@@ -230,6 +227,7 @@ btnOpenLocal.addEventListener("click", async () => {
           }
         ]
       });
+
       const file = await handle.getFile();
       const text = await file.text();
 
@@ -243,16 +241,22 @@ btnOpenLocal.addEventListener("click", async () => {
       setStatus(`已開啟：${state.originalFileName}（此瀏覽器可嘗試覆蓋儲存）`, "ok");
       return;
     } catch (e) {
-      // 使用者取消或失敗 -> fallback file input
-      // 直接走 fileInput
+      // 使用者取消或失敗 -> 不強迫 fallback
+      setStatus("已取消開檔（你也可以用「選擇檔案」或拖曳）」");
+      return;
     }
   }
 
-  // fallback：傳統 file input（無法覆蓋，只能另存）
+  // 不支援 showOpenFilePicker -> 改走相容選檔
   fileInput.click();
 });
 
-// file input fallback
+// ---------- Local Open: B) Always-available file input ----------
+btnChooseFile.addEventListener("click", () => {
+  fileInput.click();
+});
+
+// file input
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
@@ -305,7 +309,7 @@ dropzone.addEventListener("drop", async (e) => {
     setStatus("Reading dropped file…");
     const text = await file.text();
 
-    state.fileHandle = null; // 拖曳也拿不到 handle，不能覆蓋
+    state.fileHandle = null; // 拖曳拿不到 handle
     state.originalFileName = file.name || "note.md";
     state.activeUrl = "";
     state.source = `local: ${state.originalFileName}`;
@@ -322,21 +326,20 @@ dropzone.addEventListener("drop", async (e) => {
 btnLoadUrl.addEventListener("click", async () => {
   const url = (urlInput.value || "").trim();
   if (!url) return setStatus("請貼上 MD 連結", "err");
-  await loadFromUrl(url, true);
+  await loadFromUrl(url);
 });
 
-async function loadFromUrl(url, updateHash = false) {
+async function loadFromUrl(url) {
   try {
     setStatus("Fetching URL…");
     const res = await fetch(url, { method: "GET", mode: "cors", cache: "no-cache" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
 
-    state.fileHandle = null; // URL 來源沒覆蓋概念
+    state.fileHandle = null;
     state.originalFileName = "";
     state.activeUrl = url;
     state.source = `url: ${url}`;
-    if (updateHash) setActiveUrl(url);
 
     renderMarkdown(text, { source: state.source });
     setMode("preview");
@@ -350,18 +353,19 @@ async function loadFromUrl(url, updateHash = false) {
 btnSample.addEventListener("click", () => {
   const sample = `# MD Viewer（示範）
 
-預設是 **瀏覽模式**，按「編輯」才可修改。
+本機來源入口同時支援：
+- 拖曳進來
+- 點按「本機 MD」或「選擇檔案」
+
+預設 **瀏覽模式**，按「編輯」才可修改。
 
 ## 儲存規則
 - 能覆蓋就覆蓋（支援 File System Access API 的桌機瀏覽器）
 - 不能覆蓋：提示後另存 \`檔名(1).md\`、\`檔名(2).md\`…
 
-## Code
 \`\`\`js
 console.log("hello markdown");
 \`\`\`
-
-> 科技感 UI + RWD
 `;
   state.fileHandle = null;
   state.originalFileName = "sample.md";
@@ -373,14 +377,13 @@ console.log("hello markdown");
   setStatus("已載入示範", "ok");
 });
 
-// ---------- Share link (URL mode only) ----------
+// ---------- Copy share link (URL only) ----------
 btnCopyLink.addEventListener("click", async () => {
-  const url = state.activeUrl || getActiveUrl();
-  if (!url) {
-    setStatus("目前不是 URL 模式，無法產生可分享的來源連結。", "err");
+  if (!state.activeUrl) {
+    setStatus("目前不是 URL 模式，無法複製可分享來源連結。", "err");
     return;
   }
-  const share = location.href;
+  const share = `${location.origin}${location.pathname}#${encodeURIComponent(state.activeUrl)}`;
   try {
     await navigator.clipboard.writeText(share);
     setStatus("已複製分享連結 ✓", "ok");
@@ -391,10 +394,8 @@ btnCopyLink.addEventListener("click", async () => {
 
 // ---------- Save ----------
 btnSave.addEventListener("click", async () => {
-  // 優先嘗試覆蓋
-  const canTryOverwrite = !!state.fileHandle;
-
-  if (canTryOverwrite) {
+  // 優先嘗試覆蓋（只有 showOpenFilePicker 開的檔才可能有 handle）
+  if (state.fileHandle) {
     try {
       await overwriteToHandle(state.fileHandle, state.currentText);
       setStatus(`已覆蓋儲存：${state.originalFileName}`, "ok");
@@ -402,48 +403,39 @@ btnSave.addEventListener("click", async () => {
       setMode("preview");
       return;
     } catch (e) {
-      // 覆蓋失敗 -> 依規則：提示後另存 (n)
       setStatus(`無法覆蓋（${String(e)}），將改用另存序號。`, "err");
-      // continue to saveAsNumbered
+      // 續走另存
     }
   } else {
-    setStatus("此來源無法覆蓋（瀏覽器限制/URL/拖曳/傳統開檔），將改用另存序號。", "err");
+    setStatus("此來源無法覆蓋（拖曳/相容選檔/URL），將改用另存序號。", "err");
   }
 
-  // 另存序號
   const suggested = nextNumberedName(state.originalFileName || "note.md");
   downloadTextAsFile(state.currentText, suggested);
   setStatus(`已另存：${suggested}`, "ok");
-  // 另存後不強制切回 preview，你的需求沒要求，我這裡幫你切回 preview 讓使用流程像「存檔完成」
   renderMarkdown(state.currentText, { source: `saved-as: ${suggested}` });
   setMode("preview");
 });
 
 async function overwriteToHandle(handle, text) {
-  // 需要使用者授權；若權限不足會 throw
   const writable = await handle.createWritable();
   await writable.write(text);
   await writable.close();
 }
 
-// ---------- Numbered filename: name(1).md, name(2).md... ----------
+// ---------- Numbered filename ----------
 function splitNameAndExt(fileName) {
   const name = (fileName || "note.md").trim();
   const dot = name.lastIndexOf(".");
   if (dot <= 0) return { base: name, ext: ".md" };
   return { base: name.slice(0, dot), ext: name.slice(dot) };
 }
-
 function normalizeBase(base) {
-  // 把已經有的 (n) 去掉，避免變成 note(1)(2)
-  // e.g. "note(3)" -> "note"
   return base.replace(/\(\d+\)$/, "").trim();
 }
-
 function counterKey(base) {
   return `mdv.counter:${base}`;
 }
-
 function nextNumberedName(originalName) {
   const { base, ext } = splitNameAndExt(originalName || "note.md");
   const cleanBase = normalizeBase(base);
@@ -456,7 +448,6 @@ function nextNumberedName(originalName) {
 
   return `${cleanBase}(${n})${ext || ".md"}`;
 }
-
 function downloadTextAsFile(text, filename) {
   const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -471,39 +462,6 @@ function downloadTextAsFile(text, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// ---------- Hash routing for URL ----------
-function setActiveUrl(url) {
-  if (!url) {
-    history.replaceState(null, "", location.pathname + location.search);
-    return;
-  }
-  const encoded = encodeURIComponent(url);
-  history.replaceState(null, "", `#${encoded}`);
-}
-function getActiveUrl() {
-  const hash = location.hash?.slice(1) || "";
-  if (!hash) return "";
-  const [encodedUrl] = hash.split("::");
-  try { return decodeURIComponent(encodedUrl); } catch { return ""; }
-}
-
-// ---------- On load ----------
-window.addEventListener("load", async () => {
-  const url = getActiveUrl();
-  if (url) {
-    urlInput.value = url;
-    await loadFromUrl(url, false);
-  } else {
-    btnSample.click();
-  }
-});
-window.addEventListener("hashchange", async () => {
-  const url = getActiveUrl();
-  if (url) {
-    urlInput.value = url;
-    await loadFromUrl(url, false);
-  }
-});
-
-// default mode = preview
+// ---------- Default ----------
 setMode("preview");
+btnSample.click();
