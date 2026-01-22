@@ -32,11 +32,25 @@
       <button class="btn" id="btnModeEdit" title="Edit mode">編輯</button>
       <button class="btn" id="btnSave" disabled title="Save">儲存</button>
 
+      <button class="btn btn-ghost" id="btnFind" title="Find in document (Ctrl/⌘ + K)">搜尋</button>
       <button class="btn btn-ghost" id="btnTheme" title="Theme: dark/light/eye">主題</button>
     </div>
   </header>
 
+  <!-- mobile overlay -->
   <div class="overlay" id="overlay" hidden></div>
+
+  <!-- Find bar -->
+  <div class="findbar" id="findbar" hidden>
+    <div class="find-inner">
+      <input id="findInput" type="text" placeholder="搜尋目前文件…（Enter 下一個 / Shift+Enter 上一個 / Esc 關閉）" />
+      <div class="find-actions">
+        <button class="smallbtn" id="findPrev">上</button>
+        <button class="smallbtn" id="findNext">下</button>
+        <button class="smallbtn" id="findClose">關閉</button>
+      </div>
+    </div>
+  </div>
 
   <main class="layout">
     <aside class="sidebar" id="sidebar" aria-label="Sidebar">
@@ -75,6 +89,7 @@
 
       <section class="card">
         <h2>最近開啟</h2>
+        <input id="recentSearch" type="text" placeholder="搜尋最近文件…" />
         <div class="hint">會保存在此裝置（localStorage）。可手動清除。</div>
         <div class="recent" id="recentList"></div>
         <div class="row wrap" style="margin-top:10px;">
@@ -89,6 +104,7 @@
     </aside>
 
     <section class="viewer">
+      <!-- NOTE: content itself scrolls; we store scrollTop -->
       <div class="paper" id="content" tabindex="0"></div>
 
       <div class="editorWrap" id="editorWrap" hidden>
@@ -105,7 +121,9 @@
     <div class="footer-left">
       <span class="badge">RWD</span>
       <span class="badge">Copy Code</span>
-      <span class="badge">Recent</span>
+      <span class="badge">Scroll Hint</span>
+      <span class="badge">Recent+Search</span>
+      <span class="badge">Find</span>
       <span class="badge">Dark/Light/Eye</span>
     </div>
     <div class="footer-right">
@@ -113,7 +131,9 @@
     </div>
   </footer>
 
+  <!-- Markdown parser -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Syntax highlight -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
   <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
 
