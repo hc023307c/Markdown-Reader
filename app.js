@@ -1,11 +1,11 @@
-/* MD Viewer - app.js (Edit + Save)
- * - 預設 Preview
- * - 按「編輯」才可改
- * - 儲存：能覆蓋就覆蓋；不能覆蓋 => 提示並另存 檔名(1).md, (2)...
- * - 本機入口同時支援：
- *    A) 本機 MD（可覆蓋優先） -> showOpenFilePicker
- *    B) 選擇檔案（相容） -> <input type="file"> 永遠可用
- *    C) 拖曳進 dropzone
+/* MD Viewer - app.js (Optimized)
+ * ✅ Code block copy button
+ * ✅ Mobile drawer sidebar
+ * ✅ Merge "open local" (overwrite picker if possible; else file input)
+ * ✅ Recent opened list (device localStorage)
+ * ✅ Themes: dark / light / eye
+ * ✅ Default preview, click to edit
+ * ✅ Save: overwrite if possible else numbered Save As
  */
 
 const el = (id) => document.getElementById(id);
@@ -15,10 +15,12 @@ const contentEl = el("content");
 const tocEl = el("toc");
 const statusEl = el("status");
 const metaEl = el("meta");
+
 const sidebarEl = el("sidebar");
+const overlayEl = el("overlay");
+const btnSidebar = el("btnSidebar");
 
 const btnOpenLocal = el("btnOpenLocal");
-const btnChooseFile = el("btnChooseFile");
 const fileInput = el("fileInput");
 
 const urlInput = el("urlInput");
@@ -26,10 +28,9 @@ const btnLoadUrl = el("btnLoadUrl");
 
 const btnSample = el("btnSample");
 const btnCopyLink = el("btnCopyLink");
+const btnClearRecent = el("btnClearRecent");
 
 const btnTheme = el("btnTheme");
-const btnToggleToc = el("btnToggleToc");
-
 const btnModePreview = el("btnModePreview");
 const btnModeEdit = el("btnModeEdit");
 const btnSave = el("btnSave");
@@ -40,19 +41,28 @@ const editorWrap = el("editorWrap");
 const editor = el("editor");
 const editorMeta = el("editorMeta");
 
+const recentListEl = el("recentList");
+
 // ---------- Theme ----------
 const THEME_KEY = "mdv.theme";
+const THEMES = ["dark", "light", "eye"];
+
 function getTheme() {
-  return localStorage.getItem(THEME_KEY) || "dark";
+  const v = localStorage.getItem(THEME_KEY) || "dark";
+  return THEMES.includes(v) ? v : "dark";
 }
 function setTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   localStorage.setItem(THEME_KEY, theme);
+  setStatus(`Theme: ${theme}`, "ok");
 }
 setTheme(getTheme());
+
 btnTheme.addEventListener("click", () => {
-  const now = document.documentElement.getAttribute("data-theme") || "dark";
-  setTheme(now === "dark" ? "light" : "dark");
+  const now = getTheme();
+  const idx = THEMES.indexOf(now);
+  const next = THEMES[(idx + 1) % THEMES.length];
+  setTheme(next);
 });
 
 // ---------- Marked config ----------
@@ -85,19 +95,40 @@ function setStatus(msg, type = "") {
   if (type) statusEl.classList.add(type);
 }
 
+// ---------- Sidebar (mobile drawer) ----------
+function openSidebar() {
+  sidebarEl.classList.add("open");
+  overlayEl.hidden = false;
+}
+function closeSidebar() {
+  sidebarEl.classList.remove("open");
+  overlayEl.hidden = true;
+}
+btnSidebar?.addEventListener("click", () => {
+  if (sidebarEl.classList.contains("open")) closeSidebar();
+  else openSidebar();
+});
+overlayEl.addEventListener("click", closeSidebar);
+
 // ---------- State ----------
 const state = {
-  mode: "preview", // preview | edit
+  mode: "preview",          // preview | edit
   currentText: "",
   source: "—",
-  fileHandle: null,         // FileSystemFileHandle (if available)
-  originalFileName: "",     // e.g. note.md
-  activeUrl: ""
+
+  // for overwrite save
+  fileHandle: null,         // FileSystemFileHandle (if supported)
+  originalFileName: "",
+
+  // url mode
+  activeUrl: "",
+
+  // recent cache key of currently opened (if from recent)
+  cacheKey: ""
 };
 
 function setMode(mode) {
   state.mode = mode;
-
   if (mode === "edit") {
     editorWrap.hidden = false;
     btnSave.disabled = false;
@@ -108,18 +139,17 @@ function setMode(mode) {
       ? `Editing: ${state.originalFileName}`
       : (state.activeUrl ? `Editing (from URL): ${state.activeUrl}` : "Editing: (unsaved)");
 
-    setStatus("編輯模式：修改後可按「儲存」", "ok");
+    setStatus("編輯模式：修改後按「儲存」", "ok");
   } else {
     editorWrap.hidden = true;
     btnSave.disabled = true;
     setStatus("瀏覽模式", "ok");
   }
 }
-
 btnModePreview.addEventListener("click", () => setMode("preview"));
 btnModeEdit.addEventListener("click", () => setMode("edit"));
 
-// editor 即時預覽
+// Editor live preview
 let renderTimer = null;
 editor.addEventListener("input", () => {
   state.currentText = editor.value;
@@ -146,16 +176,19 @@ function renderMarkdown(mdText, meta = {}) {
 
   contentEl.innerHTML = html;
 
-  // links
+  // links target blank
   contentEl.querySelectorAll("a[href]").forEach((a) => {
     a.target = "_blank";
     a.rel = "noopener noreferrer";
   });
 
   buildTOC();
+  injectCopyButtons(); // ✅ add copy button to code blocks
+
   metaEl.textContent = `Source: ${source} • Size: ${size.toLocaleString()} chars • Rendered: ${when}`;
 }
 
+// TOC
 function buildTOC() {
   tocEl.innerHTML = "";
   const headings = contentEl.querySelectorAll("h1, h2, h3");
@@ -180,12 +213,45 @@ function buildTOC() {
     a.addEventListener("click", (ev) => {
       ev.preventDefault();
       h.scrollIntoView({ behavior: "smooth", block: "start" });
+      // mobile: auto close sidebar after click
+      closeSidebar();
     });
 
     frag.appendChild(a);
   });
 
   tocEl.appendChild(frag);
+}
+
+// ✅ Copy buttons like Notion/ChatGPT
+function injectCopyButtons() {
+  // remove old
+  contentEl.querySelectorAll(".copybtn").forEach((b) => b.remove());
+
+  const blocks = contentEl.querySelectorAll("pre > code");
+  blocks.forEach((codeEl) => {
+    const pre = codeEl.parentElement;
+    if (!pre) return;
+
+    const btn = document.createElement("button");
+    btn.className = "copybtn";
+    btn.type = "button";
+    btn.textContent = "Copy";
+
+    btn.addEventListener("click", async () => {
+      const text = codeEl.innerText || codeEl.textContent || "";
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = "Copied ✓";
+        setTimeout(() => (btn.textContent = "Copy"), 900);
+      } catch {
+        // fallback
+        prompt("複製以下內容：", text);
+      }
+    });
+
+    pre.appendChild(btn);
+  });
 }
 
 // ---------- Helpers ----------
@@ -203,16 +269,9 @@ function slugify(str) {
     .slice(0, 80) || `h-${Math.random().toString(16).slice(2)}`;
 }
 
-// ---------- Sidebar toggle ----------
-let tocOpen = true;
-btnToggleToc.addEventListener("click", () => {
-  tocOpen = !tocOpen;
-  sidebarEl.style.display = tocOpen ? "" : "none";
-});
-
-// ---------- Local Open: A) Overwrite-capable picker ----------
+// ---------- Open Local (merged) ----------
 btnOpenLocal.addEventListener("click", async () => {
-  // 支援 File System Access API -> 可取得 handle（才可能覆蓋）
+  // Prefer overwrite-capable picker when available
   if (window.showOpenFilePicker) {
     try {
       const [handle] = await window.showOpenFilePicker({
@@ -234,29 +293,32 @@ btnOpenLocal.addEventListener("click", async () => {
       state.fileHandle = handle;
       state.originalFileName = file.name || "note.md";
       state.activeUrl = "";
+      state.cacheKey = ""; // not from cache by default
       state.source = `local: ${state.originalFileName}`;
 
       renderMarkdown(text, { source: state.source });
       setMode("preview");
-      setStatus(`已開啟：${state.originalFileName}（此瀏覽器可嘗試覆蓋儲存）`, "ok");
+
+      // Save to recent cache (store content snapshot)
+      addRecent({
+        type: "local",
+        title: state.originalFileName,
+        subtitle: "Local (snapshot saved on this device)",
+        content: text
+      });
+
+      setStatus(`已開啟：${state.originalFileName}（可嘗試覆蓋儲存）`, "ok");
+      closeSidebar();
       return;
     } catch (e) {
-      // 使用者取消或失敗 -> 不強迫 fallback
-      setStatus("已取消開檔（你也可以用「選擇檔案」或拖曳）」");
-      return;
+      // user cancel -> fall back to file input (still usable)
+      // don't treat as error
     }
   }
-
-  // 不支援 showOpenFilePicker -> 改走相容選檔
+  // Fallback: file input
   fileInput.click();
 });
 
-// ---------- Local Open: B) Always-available file input ----------
-btnChooseFile.addEventListener("click", () => {
-  fileInput.click();
-});
-
-// file input
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
@@ -265,14 +327,24 @@ fileInput.addEventListener("change", async () => {
     setStatus("Reading local file…");
     const text = await file.text();
 
-    state.fileHandle = null; // 沒 handle 就不能覆蓋
+    state.fileHandle = null; // no handle => cannot overwrite
     state.originalFileName = file.name || "note.md";
     state.activeUrl = "";
+    state.cacheKey = "";
     state.source = `local: ${state.originalFileName}`;
 
     renderMarkdown(text, { source: state.source });
     setMode("preview");
+
+    addRecent({
+      type: "local",
+      title: state.originalFileName,
+      subtitle: "Local (snapshot saved on this device)",
+      content: text
+    });
+
     setStatus(`已開啟：${state.originalFileName}（此方式無法覆蓋，只能另存）`, "ok");
+    closeSidebar();
   } catch (e) {
     setStatus(`Read failed: ${String(e)}`, "err");
   } finally {
@@ -309,14 +381,24 @@ dropzone.addEventListener("drop", async (e) => {
     setStatus("Reading dropped file…");
     const text = await file.text();
 
-    state.fileHandle = null; // 拖曳拿不到 handle
+    state.fileHandle = null; // drag cannot overwrite
     state.originalFileName = file.name || "note.md";
     state.activeUrl = "";
+    state.cacheKey = "";
     state.source = `local: ${state.originalFileName}`;
 
     renderMarkdown(text, { source: state.source });
     setMode("preview");
+
+    addRecent({
+      type: "local",
+      title: state.originalFileName,
+      subtitle: "Local (snapshot saved on this device)",
+      content: text
+    });
+
     setStatus(`已開啟：${state.originalFileName}（拖曳無法覆蓋，只能另存）`, "ok");
+    closeSidebar();
   } catch (err) {
     setStatus(`Drop read failed: ${String(err)}`, "err");
   }
@@ -339,11 +421,21 @@ async function loadFromUrl(url) {
     state.fileHandle = null;
     state.originalFileName = "";
     state.activeUrl = url;
+    state.cacheKey = "";
     state.source = `url: ${url}`;
 
     renderMarkdown(text, { source: state.source });
     setMode("preview");
     setStatus("URL 載入成功（儲存會走另存序號）", "ok");
+
+    addRecent({
+      type: "url",
+      title: url,
+      subtitle: "URL (content snapshot saved)",
+      content: text
+    });
+
+    closeSidebar();
   } catch (e) {
     setStatus(`載入失敗：${String(e)}（可能是 CORS 限制，需要 proxy）`, "err");
   }
@@ -353,31 +445,40 @@ async function loadFromUrl(url) {
 btnSample.addEventListener("click", () => {
   const sample = `# MD Viewer（示範）
 
-本機來源入口同時支援：
-- 拖曳進來
-- 點按「本機 MD」或「選擇檔案」
+- 預設：**瀏覽模式**
+- 點「編輯」→ 出現 Editor
+- 程式碼區塊右上有 Copy（像 Notion/ChatGPT）
+- 近 期 清 單：會在此裝置保存一份快照
 
-預設 **瀏覽模式**，按「編輯」才可修改。
-
-## 儲存規則
-- 能覆蓋就覆蓋（支援 File System Access API 的桌機瀏覽器）
-- 不能覆蓋：提示後另存 \`檔名(1).md\`、\`檔名(2).md\`…
-
+## Code
 \`\`\`js
-console.log("hello markdown");
+function hello(name){
+  return "Hello " + name;
+}
+console.log(hello("World"));
 \`\`\`
+
+> 你也可以切換主題：Dark / Light / Eye（護眼）
 `;
   state.fileHandle = null;
   state.originalFileName = "sample.md";
   state.activeUrl = "";
+  state.cacheKey = "";
   state.source = "sample";
 
   renderMarkdown(sample, { source: state.source });
   setMode("preview");
   setStatus("已載入示範", "ok");
+
+  addRecent({
+    type: "sample",
+    title: "sample.md",
+    subtitle: "Sample",
+    content: sample
+  });
 });
 
-// ---------- Copy share link (URL only) ----------
+// ---------- Share link (URL only) ----------
 btnCopyLink.addEventListener("click", async () => {
   if (!state.activeUrl) {
     setStatus("目前不是 URL 模式，無法複製可分享來源連結。", "err");
@@ -394,27 +495,44 @@ btnCopyLink.addEventListener("click", async () => {
 
 // ---------- Save ----------
 btnSave.addEventListener("click", async () => {
-  // 優先嘗試覆蓋（只有 showOpenFilePicker 開的檔才可能有 handle）
+  // Try overwrite when handle exists
   if (state.fileHandle) {
     try {
       await overwriteToHandle(state.fileHandle, state.currentText);
       setStatus(`已覆蓋儲存：${state.originalFileName}`, "ok");
       renderMarkdown(state.currentText, { source: `local: ${state.originalFileName}` });
       setMode("preview");
+
+      // Update recent snapshot too (best effort)
+      addRecent({
+        type: "local",
+        title: state.originalFileName,
+        subtitle: "Local (snapshot updated)",
+        content: state.currentText
+      });
+
       return;
     } catch (e) {
       setStatus(`無法覆蓋（${String(e)}），將改用另存序號。`, "err");
-      // 續走另存
     }
   } else {
     setStatus("此來源無法覆蓋（拖曳/相容選檔/URL），將改用另存序號。", "err");
   }
 
+  // Save as numbered
   const suggested = nextNumberedName(state.originalFileName || "note.md");
   downloadTextAsFile(state.currentText, suggested);
+
   setStatus(`已另存：${suggested}`, "ok");
   renderMarkdown(state.currentText, { source: `saved-as: ${suggested}` });
   setMode("preview");
+
+  addRecent({
+    type: "local",
+    title: suggested,
+    subtitle: "Saved as numbered file",
+    content: state.currentText
+  });
 });
 
 async function overwriteToHandle(handle, text) {
@@ -462,6 +580,160 @@ function downloadTextAsFile(text, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// ---------- Default ----------
-setMode("preview");
-btnSample.click();
+// ---------- Recent list (device cache) ----------
+const RECENT_KEY = "mdv.recent.v1";
+const RECENT_MAX = 12;
+
+// content cache (store snapshots). Keep limited to avoid huge localStorage usage.
+const CACHE_PREFIX = "mdv.cache:";
+const CACHE_MAX_CHARS = 180_000; // ~180KB text (rough)
+
+function safeKey(s) {
+  // make short stable-ish key
+  const base = String(s).slice(0, 80);
+  return base.replace(/[^a-zA-Z0-9\u4e00-\u9fff._-]/g, "_");
+}
+
+function addRecent({ type, title, subtitle, content }) {
+  try {
+    const now = Date.now();
+    const id = `${type}:${safeKey(title)}:${now}`;
+
+    // store content snapshot (best effort)
+    let cacheKey = `${CACHE_PREFIX}${safeKey(id)}`;
+    if (typeof content === "string" && content.length <= CACHE_MAX_CHARS) {
+      localStorage.setItem(cacheKey, content);
+    } else {
+      // too big: store truncated, still useful
+      const short = String(content || "").slice(0, CACHE_MAX_CHARS);
+      localStorage.setItem(cacheKey, short);
+    }
+
+    const item = { id, type, title, subtitle, ts: now, cacheKey };
+
+    const list = getRecent();
+    // de-duplicate by title+type: keep latest
+    const filtered = list.filter(x => !(x.type === type && x.title === title));
+    filtered.unshift(item);
+
+    const trimmed = filtered.slice(0, RECENT_MAX);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(trimmed));
+    renderRecent();
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function getRecent() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]") || [];
+  } catch {
+    return [];
+  }
+}
+
+function removeRecent(id) {
+  const list = getRecent().filter(x => x.id !== id);
+  localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  renderRecent();
+}
+
+function clearRecent() {
+  const list = getRecent();
+  // remove cache snapshots too
+  list.forEach(x => {
+    try { if (x.cacheKey) localStorage.removeItem(x.cacheKey); } catch {}
+  });
+  localStorage.removeItem(RECENT_KEY);
+  renderRecent();
+}
+
+btnClearRecent.addEventListener("click", () => {
+  clearRecent();
+  setStatus("已清除最近清單", "ok");
+});
+
+function renderRecent() {
+  const list = getRecent();
+  recentListEl.innerHTML = "";
+
+  if (!list.length) {
+    recentListEl.innerHTML = `<div class="hint">（尚無紀錄）</div>`;
+    return;
+  }
+
+  list.forEach((item) => {
+    const wrap = document.createElement("div");
+    wrap.className = "recentItem";
+
+    const main = document.createElement("div");
+    main.className = "recentMain";
+
+    const title = document.createElement("div");
+    title.className = "recentTitle";
+    title.textContent = item.title;
+
+    const sub = document.createElement("div");
+    sub.className = "recentSub";
+    const d = new Date(item.ts);
+    sub.textContent = `${item.type.toUpperCase()} • ${d.toLocaleString()} • ${item.subtitle || ""}`;
+
+    main.appendChild(title);
+    main.appendChild(sub);
+
+    const btns = document.createElement("div");
+    btns.className = "recentBtns";
+
+    const openBtn = document.createElement("button");
+    openBtn.className = "smallbtn";
+    openBtn.textContent = "開啟";
+    openBtn.addEventListener("click", () => openRecent(item));
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "smallbtn";
+    delBtn.textContent = "刪除";
+    delBtn.addEventListener("click", () => removeRecent(item.id));
+
+    btns.appendChild(openBtn);
+    btns.appendChild(delBtn);
+
+    wrap.appendChild(main);
+    wrap.appendChild(btns);
+    recentListEl.appendChild(wrap);
+  });
+}
+
+function openRecent(item) {
+  let text = "";
+  try {
+    text = localStorage.getItem(item.cacheKey || "") || "";
+  } catch {}
+  if (!text) {
+    setStatus("此項目快照不存在或已被清除。", "err");
+    return;
+  }
+
+  // open snapshot (cannot restore overwrite handle)
+  state.fileHandle = null;
+  state.originalFileName = item.type === "local" ? item.title : "";
+  state.activeUrl = item.type === "url" ? item.title : "";
+  state.cacheKey = item.cacheKey || "";
+  state.source = `recent: ${item.title}`;
+
+  // populate url input if url
+  if (item.type === "url") urlInput.value = item.title;
+
+  renderMarkdown(text, { source: state.source });
+  setMode("preview");
+  setStatus("已從最近清單開啟（快照）", "ok");
+  closeSidebar();
+}
+
+// ---------- init ----------
+function boot() {
+  setMode("preview");
+  renderRecent();
+  // Show sample first if nothing loaded
+  btnSample.click();
+}
+boot();
