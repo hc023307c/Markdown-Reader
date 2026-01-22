@@ -30,7 +30,6 @@
   --shadow: 0 12px 40px rgba(20,30,60,.12);
 }
 
-/* Eye-care mode: warmer, lower contrast, softer glow */
 :root[data-theme="eye"]{
   --bg:#0C0B0A;
   --panel:#14120F;
@@ -111,7 +110,7 @@ body{
   background: rgba(0,0,0,.10);
   color:var(--text);
   cursor:pointer;
-  display:none; /* desktop hidden */
+  display:none;
 }
 :root[data-theme="light"] .iconbtn{background: rgba(0,0,0,.03);}
 
@@ -198,7 +197,6 @@ input{
   outline:none;
 }
 :root[data-theme="light"] input{background: rgba(0,0,0,.03);}
-:root[data-theme="eye"] input{background: rgba(0,0,0,.18);}
 input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,227,255,.10);}
 
 .dropzone{
@@ -246,9 +244,11 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
   background: rgba(0,0,0,.18);
 }
 :root[data-theme="light"] .paper code{background: rgba(0,0,0,.04);}
+
+/* ✅ pre: add top padding so Copy button never covers code */
 .paper pre{
   position:relative;
-  padding: 14px;
+  padding: 42px 14px 14px; /* top padding increased for button space */
   border-radius: 16px;
   border: 1px solid var(--line);
   background: rgba(0,0,0,.22);
@@ -321,11 +321,11 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
 }
 :root[data-theme="light"] .editor{background: rgba(0,0,0,.03); color:var(--text);}
 
-/* Copy button on code blocks */
+/* ✅ Copy button: move to TOP-LEFT */
 .copybtn{
   position:absolute;
   top:10px;
-  right:10px;
+  left:10px;             /* was right:10px */
   padding:7px 10px;
   border-radius:12px;
   border:1px solid var(--line);
@@ -429,7 +429,6 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
   :root[data-theme="eye"] .sidebar{background: rgba(20,18,15,.94);}
 
   .sidebar.open{transform: translateX(0);}
-  .viewer{padding-top:0;}
   .paper{min-height: 52dvh;}
   .actions{gap:8px;}
 }
