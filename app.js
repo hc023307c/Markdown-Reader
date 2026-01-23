@@ -1,9 +1,11 @@
-/* MD Viewer - Final Stable
+/* MD Viewer - Final Stable (+ Pinch Zoom on code blocks)
  * - Default preview, click edit to modify
  * - Local open: overwrite picker if available, else file input
  * - Save: overwrite if possible; otherwise numbered Save As + alert message
  * - Code blocks: NEVER wrap, horizontal scroll only + fade scroll hint
  * - Copy button (top-left) on each code block (no overlap with code)
+ * - Pinch zoom (two-finger) on code blocks (iOS Safari supported)
+ * - Double tap code block to reset zoom
  * - Mobile drawer sidebar
  * - Recent opened list with search (stored on device, includes content snapshot)
  * - Find in document (Ctrl/⌘+K), next/prev, ESC to close
@@ -194,6 +196,7 @@ function renderMarkdown(mdText, meta = {}) {
   buildTOC();
   injectCopyButtons();
   initCodeScrollHints();
+  initCodePinchZoom(); // ✅ add pinch zoom on code blocks
 
   metaEl.textContent = `Source: ${source} • Size: ${size.toLocaleString()} chars • Rendered: ${when}`;
 
@@ -269,7 +272,6 @@ function initCodeScrollHints() {
     const update = () => updatePreScrollAttrs(pre);
     update();
     pre.addEventListener("scroll", update, { passive: true });
-    // Also update when window resizes (layout changes)
     window.addEventListener("resize", update, { passive: true });
   });
 }
@@ -287,6 +289,122 @@ function updatePreScrollAttrs(pre) {
 
   pre.dataset.scrollLeft = left > 2 ? "true" : "false";
   pre.dataset.scrollRight = left < (maxScrollLeft - 2) ? "true" : "false";
+}
+
+// =========================================================
+// ✅ Pinch zoom on code blocks (two-finger) + double-tap reset
+// - Uses CSS `zoom` when available; fallback to transform scale()
+// - Prevents page zoom ONLY during 2-finger gesture on code block
+// =========================================================
+const PINCH_MIN = 0.7;
+const PINCH_MAX = 3.0;
+
+function initCodePinchZoom() {
+  const pres = contentEl.querySelectorAll("pre");
+  pres.forEach((pre) => enablePinchZoomOnPre(pre));
+}
+
+function enablePinchZoomOnPre(pre) {
+  // Avoid double-binding
+  if (pre.dataset.pinchBound === "true") return;
+  pre.dataset.pinchBound = "true";
+
+  const code = pre.querySelector("code") || pre;
+
+  // default zoom
+  if (!pre.dataset.zoom) pre.dataset.zoom = "1";
+  applyZoom(pre, code, parseFloat(pre.dataset.zoom || "1"));
+
+  let startDist = 0;
+  let startZoom = 1;
+  let isPinching = false;
+
+  const dist = (t1, t2) => {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.hypot(dx, dy);
+  };
+
+  pre.addEventListener("touchstart", (e) => {
+    if (e.touches && e.touches.length === 2) {
+      isPinching = true;
+      startDist = dist(e.touches[0], e.touches[1]);
+      startZoom = parseFloat(pre.dataset.zoom || "1");
+    }
+  }, { passive: true });
+
+  pre.addEventListener("touchmove", (e) => {
+    if (e.touches && e.touches.length === 2 && isPinching) {
+      // prevent page zoom / scroll while pinching on code
+      e.preventDefault();
+
+      const d = dist(e.touches[0], e.touches[1]);
+      if (startDist <= 0) return;
+
+      const ratio = d / startDist;
+      const nextZoom = clamp(startZoom * ratio, PINCH_MIN, PINCH_MAX);
+
+      pre.dataset.zoom = String(nextZoom);
+      applyZoom(pre, code, nextZoom);
+      updatePreScrollAttrs(pre);
+    }
+  }, { passive: false });
+
+  pre.addEventListener("touchend", (e) => {
+    if (!e.touches || e.touches.length < 2) {
+      isPinching = false;
+    }
+  }, { passive: true });
+
+  pre.addEventListener("touchcancel", () => {
+    isPinching = false;
+  }, { passive: true });
+
+  // Double tap to reset zoom
+  let lastTap = 0;
+  pre.addEventListener("touchend", (e) => {
+    const now = Date.now();
+    const dt = now - lastTap;
+    lastTap = now;
+
+    // ignore if it was pinching
+    if (isPinching) return;
+
+    // double tap within 280ms
+    if (dt > 0 && dt < 280) {
+      const nextZoom = 1;
+      pre.dataset.zoom = "1";
+      applyZoom(pre, code, nextZoom);
+      updatePreScrollAttrs(pre);
+      setStatus("Code zoom reset: 100%", "ok");
+    }
+  }, { passive: true });
+}
+
+function applyZoom(pre, code, z) {
+  // Prefer CSS zoom when supported
+  try {
+    // Some browsers expose zoom; iOS Safari usually works
+    code.style.zoom = String(z);
+    code.style.transform = "";
+    code.style.display = "inline-block";
+    code.style.minWidth = "100%";
+  } catch {
+    // Fallback: transform scale (less perfect, but usable)
+    code.style.zoom = "";
+    code.style.transform = `scale(${z})`;
+    code.style.transformOrigin = "0 0";
+    code.style.display = "inline-block";
+    code.style.minWidth = "100%";
+  }
+
+  // Keep scrolling smooth after zoom
+  pre.style.overflowX = "auto";
+  pre.style.overflowY = "hidden";
+}
+
+function clamp(n, a, b) {
+  return Math.max(a, Math.min(b, n));
 }
 
 // ---------- Helpers ----------
@@ -340,9 +458,7 @@ btnOpenLocal.addEventListener("click", async () => {
       setStatus(`已開啟：${state.originalFileName}（可嘗試覆蓋儲存）`, "ok");
       closeSidebar();
       return;
-    } catch (e) {
-      // user cancel -> fallback to file input (no error)
-    }
+    } catch (e) {}
   }
   fileInput.click();
 });
@@ -468,27 +584,22 @@ async function loadFromUrl(url) {
 
 // ---------- Sample ----------
 btnSample.addEventListener("click", () => {
-  const sample = `# MD Viewer（最終穩定版示範）
+  const sample = `# Pinch Zoom Code 測試
 
-- 程式碼：**不換行**、只允許左右滑動（GitHub 行為）
-- 程式碼左上角有 Copy（不會蓋到內容）
-- 會顯示左右滑動提示陰影（可滑時才出現）
-- 最近清單：裝置內保存一份快照（可搜尋）
-- 文件搜尋：Ctrl/⌘ + K
+- 📱 兩指縮放：只作用於 code block
+- 🔁 雙擊 code block：重置 100%
+- ↔ 程式碼永遠不換行：左右滑動觀看
 
-## Code
 \`\`\`bash
-sudo systemctl restart networking && echo "done"
+/etc/init.d/networking restart && echo "this_is_a_very_long_line_that_should_not_wrap_but_can_be_scrolled_horizontally"
 \`\`\`
 
 \`\`\`js
 function hello(name){
-  return "Hello " + name;
+  return "Hello " + name + " — " + "this_is_a_long_token_to_test_scrolling";
 }
 console.log(hello("World"));
 \`\`\`
-
-> 主題：Dark / Light / Eye（護眼偏米白）
 `;
   state.fileHandle = null;
   state.originalFileName = "sample.md";
@@ -497,7 +608,7 @@ console.log(hello("World"));
 
   renderMarkdown(sample, { source: state.source });
   setMode("preview");
-  setStatus("已載入示範", "ok");
+  setStatus("已載入示範（可直接用 code 區塊兩指縮放）", "ok");
 
   addRecent({
     type: "sample",
@@ -524,7 +635,6 @@ btnCopyLink.addEventListener("click", async () => {
 
 // ---------- Save ----------
 btnSave.addEventListener("click", async () => {
-  // Try overwrite
   if (state.fileHandle) {
     try {
       await overwriteToHandle(state.fileHandle, state.currentText);
@@ -538,7 +648,6 @@ btnSave.addEventListener("click", async () => {
         subtitle: "Local (snapshot updated)",
         content: state.currentText
       });
-
       return;
     } catch (e) {
       alert(`無法覆蓋原檔（瀏覽器權限/限制）：\n${String(e)}\n\n將改用另存序號。`);
@@ -549,7 +658,6 @@ btnSave.addEventListener("click", async () => {
     setStatus("此來源無法覆蓋，將改用另存序號。", "err");
   }
 
-  // Save as numbered
   const suggested = nextNumberedName(state.originalFileName || "note.md");
   downloadTextAsFile(state.currentText, suggested);
 
@@ -614,7 +722,7 @@ function downloadTextAsFile(text, filename) {
 const RECENT_KEY = "mdv.recent.v1";
 const RECENT_MAX = 12;
 const CACHE_PREFIX = "mdv.cache:";
-const CACHE_MAX_CHARS = 180_000; // keep it safe-ish
+const CACHE_MAX_CHARS = 180_000;
 
 function safeKey(s) {
   const base = String(s).slice(0, 80);
@@ -740,7 +848,6 @@ function openRecent(item) {
     return;
   }
 
-  // Open snapshot (cannot restore overwrite handle)
   state.fileHandle = null;
   state.originalFileName = item.type === "local" || item.type === "sample" ? item.title : "";
   state.activeUrl = item.type === "url" ? item.title : "";
@@ -769,7 +876,6 @@ function closeFindBar() {
   findKeyword = "";
   findHits = [];
   findIndex = -1;
-  // re-render to remove highlights (stable)
   renderMarkdown(state.currentText, { source: state.source });
 }
 
@@ -783,20 +889,17 @@ document.addEventListener("keydown", (e) => {
   const isMac = navigator.platform.toLowerCase().includes("mac");
   const mod = isMac ? e.metaKey : e.ctrlKey;
 
-  // Ctrl/⌘+K open find
   if (mod && e.key.toLowerCase() === "k") {
     e.preventDefault();
     if (findbar.hidden) openFindBar();
     else closeFindBar();
   }
 
-  // ESC closes find
   if (e.key === "Escape" && !findbar.hidden) {
     e.preventDefault();
     closeFindBar();
   }
 
-  // Enter next/prev when find input focused
   if (!findbar.hidden && document.activeElement === findInput) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -815,7 +918,6 @@ findNext.addEventListener("click", gotoNextHit);
 findPrev.addEventListener("click", gotoPrevHit);
 
 function applyFind(keyword) {
-  // remove highlights by re-render
   if (!keyword) {
     renderMarkdown(state.currentText, { source: state.source });
     findHits = [];
@@ -823,7 +925,6 @@ function applyFind(keyword) {
     return;
   }
 
-  // Render once, then inject <mark> safely by highlighting in DOM text nodes
   renderMarkdown(state.currentText, { source: state.source });
 
   const marks = highlightTextNodes(contentEl, keyword);
@@ -855,14 +956,12 @@ function scrollToHit(idx) {
   el.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-/* Highlight keyword in text nodes only (avoid breaking code blocks/buttons) */
 function highlightTextNodes(root, keyword) {
   const marks = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => {
       if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
 
-      // Skip inside code/pre/script/style/buttons
       const p = node.parentElement;
       if (!p) return NodeFilter.FILTER_REJECT;
       if (p.closest("pre, code, script, style, button, textarea, input")) return NodeFilter.FILTER_REJECT;
