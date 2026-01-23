@@ -52,7 +52,7 @@
 html,body{height:100%}
 html, body{
   max-width: 100%;
-  overflow-x: hidden; /* critical mobile safety */
+  overflow-x: hidden;
 }
 body{
   margin:0;
@@ -177,10 +177,7 @@ body{
   box-shadow: var(--shadow);
 }
 
-.card{
-  padding:14px;
-  margin-bottom:12px;
-}
+.card{padding:14px; margin-bottom:12px;}
 .card h2{
   margin:0 0 12px 0;
   font-size:13px;
@@ -235,8 +232,11 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
   line-height: 1.8;
   overflow: auto;
   min-height: 48dvh;
-
   max-width: 100%;
+}
+
+/* ✅ 手機右邊看不到：一般內容遇邊界換行（不含 code block） */
+.paper :is(p, li, a, h1, h2, h3, h4, h5, h6, blockquote, td, th) {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -256,11 +256,11 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
 .paper h2{font-size:22px; margin: 24px 0 10px;}
 .paper h3{font-size:18px; margin: 18px 0 8px;}
 .paper p{margin: 10px 0;}
-.paper a{color: var(--accent); text-decoration: none; overflow-wrap:anywhere;}
+.paper a{color: var(--accent); text-decoration: none;}
 .paper a:hover{text-decoration: underline}
 .paper img{max-width:100%; height:auto;}
 
-/* Inline code wraps normally (won't blow layout) */
+/* Inline code wraps normally */
 .paper code:not(pre code){
   font-family: var(--mono);
   font-size: .95em;
@@ -291,6 +291,7 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
    Code blocks = GitHub-style (NEVER wrap, horizontal scroll only)
    + fade shadow hint (scroll)
    + Copy button top-left, does NOT cover text
+   + Pinch zoom enabled (JS sets zoom)
    ========================================================= */
 .paper pre{
   position:relative;
@@ -300,7 +301,10 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
   white-space:pre;
   -webkit-overflow-scrolling:touch;
 
-  padding: 38px 14px 14px; /* top space for copy button (no overlap) */
+  /* allow pinch gestures to be handled by JS without fighting scroll too much */
+  touch-action: pan-x pan-y;
+
+  padding: 38px 14px 14px; /* top space for copy button */
   border-radius: 16px;
   border: 1px solid var(--line);
   background: rgba(0,0,0,.22);
@@ -319,6 +323,7 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
   font-family: var(--mono);
   font-size: 13.5px;
   line-height: 1.6;
+  transform-origin: 0 0; /* used if fallback transform is applied */
 }
 
 /* Copy button (top-left) */
@@ -339,7 +344,7 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
 :root[data-theme="light"] .copybtn{background: rgba(255,255,255,.70);}
 .copybtn:hover{border-color: rgba(102,227,255,.45); box-shadow: 0 0 0 4px rgba(102,227,255,.08);}
 
-/* Fade shadow hint (controlled by JS data attrs) */
+/* Fade shadow hint */
 .paper pre::before,
 .paper pre::after{
   content:"";
