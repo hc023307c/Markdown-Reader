@@ -514,3 +514,29 @@ input:focus{border-color: rgba(102,227,255,.5); box-shadow: 0 0 0 4px rgba(102,2
 @media (prefers-reduced-motion: reduce){
   .btn,.dropzone,.sidebar,.paper pre::before,.paper pre::after{transition:none}
 }
+/* ===== iPhone hard wrap fix (must be at end of file) ===== */
+
+/* 讓整個內容區的文字遇到超長字串也能斷行 */
+.paper{
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+
+/* 連結最容易撐爆畫面：強制可斷行 */
+.paper a{
+  overflow-wrap: anywhere !important;
+  word-break: break-all !important; /* iOS 對超長 URL 最有效 */
+}
+
+/* 保險：確保段落/清單是正常換行 */
+.paper p, .paper li, .paper blockquote, .paper td, .paper th{
+  white-space: normal !important;
+}
+
+/* 但 code block 仍維持 GitHub 行為：不換行、左右滑 */
+.paper pre,
+.paper pre code{
+  white-space: pre !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+}
