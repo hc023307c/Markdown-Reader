@@ -37,10 +37,8 @@
     </div>
   </header>
 
-  <!-- mobile overlay -->
   <div class="overlay" id="overlay" hidden></div>
 
-  <!-- Find bar -->
   <div class="findbar" id="findbar" hidden>
     <div class="find-inner">
       <input id="findInput" type="text" placeholder="搜尋目前文件…（Enter 下一個 / Shift+Enter 上一個 / Esc 關閉）" />
@@ -85,6 +83,7 @@
         </div>
 
         <div class="status" id="status" role="status" aria-live="polite"></div>
+        <div class="hint">📌 Code 區塊支援兩指縮放；雙擊可重置縮放。</div>
       </section>
 
       <section class="card">
@@ -104,7 +103,6 @@
     </aside>
 
     <section class="viewer">
-      <!-- NOTE: content itself scrolls; we store scrollTop -->
       <div class="paper" id="content" tabindex="0"></div>
 
       <div class="editorWrap" id="editorWrap" hidden>
@@ -121,7 +119,7 @@
     <div class="footer-left">
       <span class="badge">RWD</span>
       <span class="badge">Copy Code</span>
-      <span class="badge">Scroll Hint</span>
+      <span class="badge">Pinch Zoom Code</span>
       <span class="badge">Recent+Search</span>
       <span class="badge">Find</span>
       <span class="badge">Dark/Light/Eye</span>
@@ -131,9 +129,7 @@
     </div>
   </footer>
 
-  <!-- Markdown parser -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <!-- Syntax highlight -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
   <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js"></script>
 
